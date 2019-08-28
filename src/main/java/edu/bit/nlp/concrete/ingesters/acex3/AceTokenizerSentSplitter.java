@@ -8,10 +8,16 @@ import edu.stanford.nlp.ie.machinereading.domains.ace.reader.*;
 import edu.stanford.nlp.ie.machinereading.domains.ace.reader.RobustTokenizer.WordToken;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.ling.TaggedWord;
+import edu.stanford.nlp.parser.lexparser.LexicalizedParser;
 import edu.stanford.nlp.process.CoreLabelTokenFactory;
 import edu.stanford.nlp.process.PTBTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import edu.stanford.nlp.trees.GrammaticalStructure;
+import edu.stanford.nlp.trees.TypedDependency;
+import edu.stanford.nlp.trees.GrammaticalStructureFactory;
+import edu.stanford.nlp.trees.TreebankLanguagePack;
 
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -20,6 +26,29 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.Collection;
+import edu.stanford.nlp.pipeline.Annotation;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
+import edu.stanford.nlp.dcoref.CorefChain;
+import edu.stanford.nlp.dcoref.CorefCoreAnnotations.CorefChainAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.NamedEntityTagAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.PartOfSpeechAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.SentencesAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.TextAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.TokensAnnotation;
+import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.pipeline.Annotation;
+import edu.stanford.nlp.pipeline.StanfordCoreNLP;
+import edu.stanford.nlp.semgraph.SemanticGraph;
+import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation;
+import edu.stanford.nlp.trees.Tree;
+import edu.stanford.nlp.trees.TreeCoreAnnotations.TreeAnnotation;
+import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.trees.PennTreebankLanguagePack;
+import edu.stanford.nlp.util.Filters;
 
 /**
  * The methods in this class were copied with modifications from
@@ -39,15 +68,15 @@ public class AceTokenizerSentSplitter {
             sentenceFinalPuncSet.add(sentenceFinalPunc[i]);
     }
 
-    public static List<List<WordToken>> tokenizeAndSentenceSegment(AceDocument apfDoc, Communication comm) {
-        List<List<WordToken>> sentences = new ArrayList<List<WordToken>>();
+    public static List<List<WordTokenPOSDep>> tokenizeAndSentenceSegment(LexicalizedParser lp, AceDocument apfDoc, Communication comm) {
+        List<List<WordTokenPOSDep>> sentences = new ArrayList<List<WordTokenPOSDep>>();
 
         // Create the initial tokenization and sentence segmentation using Stanford
         // tools.
         for (Section section : comm.getSectionList()) {
             TextSpan secSpan = section.getTextSpan();
             String input = comm.getText().substring(secSpan.getStart(), secSpan.getEnding());
-            tokenizeAndSentenceSegment(input, secSpan.getStart(), sentences);
+            tokenizeAndSentenceSegment(lp, input, secSpan.getStart(), sentences);
         }
 
         // NOTE: We used to call this when our tokenization was non-destructive.
@@ -61,14 +90,14 @@ public class AceTokenizerSentSplitter {
 
         // Log sentences with offsets.
         for (int i = 0; i < sentences.size(); i++) {
-            List<WordToken> sent = sentences.get(i);
+            List<WordTokenPOSDep> sent = sentences.get(i);
             log.trace("Sentence i=" + i + ": " + sent);
         }
         // Log sentences as tokens only.
         for (int i = 0; i < sentences.size(); i++) {
-            List<WordToken> sent = sentences.get(i);
+            List<WordTokenPOSDep> sent = sentences.get(i);
             StringBuilder sb = new StringBuilder();
-            for (WordToken tok : sent) {
+            for (WordTokenPOSDep tok : sent) {
                 sb.append(tok.getWord());
                 sb.append(" ");
             }
@@ -78,7 +107,7 @@ public class AceTokenizerSentSplitter {
         return sentences;
     }
 
-    private static List<List<WordToken>> mergeSentencesForEvents(AceDocument apfDoc, List<List<WordToken>> sentences) {
+    private static List<List<WordTokenPOSDep>> mergeSentencesForEvents(AceDocument apfDoc, List<List<WordTokenPOSDep>> sentences) {
         // If any event span contains a sentence boundary, merge the two
         // sentences on either side of that sentence boundary.
         int[] sentBreaks = getSentBoundaries(sentences);
@@ -104,7 +133,7 @@ public class AceTokenizerSentSplitter {
     }
 
 
-    private static List<List<WordToken>> mergeSentencesForRelations(AceDocument apfDoc, List<List<WordToken>> sentences) {
+    private static List<List<WordTokenPOSDep>> mergeSentencesForRelations(AceDocument apfDoc, List<List<WordTokenPOSDep>> sentences) {
         // If any relation span contains a sentence boundary, merge the two
         // sentences on either side of that sentence boundary.
         int[] sentBreaks = getSentBoundaries(sentences);
@@ -133,7 +162,7 @@ public class AceTokenizerSentSplitter {
      * @param start Beginning of the span (inclusive).
      * @param end   End of the span (exclusive).
      */
-    private static int[] mergeIfSpanCrossesSents(List<List<WordToken>> sentences, int[] sentBreaks, int start, int end,
+    private static int[] mergeIfSpanCrossesSents(List<List<WordTokenPOSDep>> sentences, int[] sentBreaks, int start, int end,
                                                  String descr) {
         boolean fixing = false;
         do {
@@ -141,11 +170,11 @@ public class AceTokenizerSentSplitter {
             for (int i = 0; i < sentBreaks.length; i++) {
                 if (start < sentBreaks[i] && sentBreaks[i] < end) {
                     // Merge the two sentences.
-                    List<WordToken> sent1 = sentences.get(i - 1);
-                    List<WordToken> sent2 = sentences.get(i);
+                    List<WordTokenPOSDep> sent1 = sentences.get(i - 1);
+                    List<WordTokenPOSDep> sent2 = sentences.get(i);
 
                     // Union operation.
-                    List<WordToken> merged = Stream.concat(sent1.stream(), sent2.stream()).distinct()
+                    List<WordTokenPOSDep> merged = Stream.concat(sent1.stream(), sent2.stream()).distinct()
                             .collect(Collectors.toList());
                     sentences.set(i - 1, merged);
                     sentences.remove(i);
@@ -162,10 +191,10 @@ public class AceTokenizerSentSplitter {
         return sentBreaks;
     }
 
-    private static String sentStr(List<WordToken> sent) {
+    private static String sentStr(List<WordTokenPOSDep> sent) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < sent.size(); i++) {
-            WordToken tok = sent.get(i);
+            WordTokenPOSDep tok = sent.get(i);
             if (i != 0) {
                 sb.append(" ");
             }
@@ -174,9 +203,9 @@ public class AceTokenizerSentSplitter {
         return sb.toString();
     }
 
-    private static int[] getSentBoundaries(List<List<WordToken>> sentences) {
+    private static int[] getSentBoundaries(List<List<WordTokenPOSDep>> sentences) {
         List<Integer> blist = new ArrayList<>();
-        for (List<WordToken> sent : sentences) {
+        for (List<WordTokenPOSDep> sent : sentences) {
             blist.add(sent.get(0).getStart());
         }
         int[] barray = new int[blist.size()];
@@ -198,7 +227,8 @@ public class AceTokenizerSentSplitter {
      * @param offset
      * @param outSents
      */
-    private static void tokenizeAndSentenceSegment(String input, int offset, List<List<WordToken>> outSents) {
+    private static void tokenizeAndSentenceSegment(LexicalizedParser lp, String input, int offset,
+                                                   List<List<WordTokenPOSDep>> outSents) {
         // now we can split the text into tokens
 
         StringReader r = new StringReader(input);
@@ -221,7 +251,9 @@ public class AceTokenizerSentSplitter {
         r.close();
 
         // Add the offset and create WordTokens
-        List<WordToken> tokenList = new ArrayList<>();
+        List<WordTokenPOSDep> tokenList = new ArrayList<>();
+        int j = 0;
+        //System.out.println("len(coreLabelList)= "+coreLabelList.size());
         for (CoreLabel cl : coreLabelList) {
             String whitespaceBefore = cl.get(CoreAnnotations.BeforeAnnotation.class);
             int newLineCount = 0;
@@ -230,33 +262,76 @@ public class AceTokenizerSentSplitter {
                     newLineCount++;
                 }
             }
-            WordToken tok = new WordToken(cl.get(CoreAnnotations.TextAnnotation.class),
+            /**
+             *
+             * @author Meryem M'hamdi (meryem@isi.edu)
+             *
+             * Extending WordToken to WordTokenPOSDep with more linguistic attributes
+             */
+            WordTokenPOSDep tok = new WordTokenPOSDep(cl.get(CoreAnnotations.TextAnnotation.class),
+                    cl.get(CoreAnnotations.PartOfSpeechAnnotation.class), -2, "",
                     cl.get(CoreAnnotations.CharacterOffsetBeginAnnotation.class),
                     cl.get(CoreAnnotations.CharacterOffsetEndAnnotation.class), newLineCount);
             tok.setStart(tok.getStart() + offset);
             tok.setEnd(tok.getEnd() + offset);
             tokenList.add(tok);
+            j++;
         }
 
         // and group the tokens into sentences
-        List<List<WordToken>> sentences = new ArrayList<List<WordToken>>();
-        ArrayList<WordToken> currentSentence = new ArrayList<WordToken>();
+        List<List<WordTokenPOSDep>> sentences = new ArrayList<List<WordTokenPOSDep>>();
+        ArrayList<WordTokenPOSDep> currentSentence = new ArrayList<WordTokenPOSDep>();
+        List<CoreLabel> coreLabelSentence = new ArrayList<>();
         int quoteCount = 0;
         for (int i = 0; i < tokenList.size(); i++) {
-            WordToken token = tokenList.get(i);
+            WordTokenPOSDep token = tokenList.get(i);
             String tokenText = token.getWord();
 
             // start a new sentence if we skipped 2+ lines (after datelines, etc.)
             // or we hit some SGML
             if (token.getNewLineCount() > 1 || AceToken.isSgml(tokenText)) {
                 // if (AceToken.isSgml(tokenText)) {
-                if (currentSentence.size() > 0)
+                if (currentSentence.size() > 0){
+                    Tree tree = lp.apply(coreLabelSentence);
+                    TreebankLanguagePack tlp = new PennTreebankLanguagePack();
+                    GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory(Filters.<String>acceptFilter());
+                    GrammaticalStructure gs = gsf.newGrammaticalStructure(tree);
+                    List<SentDep> deps = new ArrayList<SentDep>();
+                    Collection<TypedDependency> tdl = gs.typedDependenciesCCprocessed(true);
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        for (TypedDependency td : tdl) {
+                            // TypedDependency td = tdl.(i);
+                            String name = td.reln().getShortName();
+                            if (td.reln().getSpecific() != null)
+                                name += "-" + td.reln().getSpecific();
+
+                            int gov = td.gov().index();
+                            int dep = td.dep().index();
+                            if (gov == dep) {
+                                // System.err.println("same???");
+                            }
+                            SentDep sd = new SentDep(gov - 1, dep - 1, name);
+                            deps.add(sd);
+                        }
+                    }
+                    for (int l=0; l<currentSentence.size();l++){
+                        currentSentence.get(l).setGov(deps.get(l).getGov());
+                        currentSentence.get(l).setType(deps.get(l).getType());
+                        currentSentence.get(l).setPOS(coreLabelSentence.get(l).get(CoreAnnotations.PartOfSpeechAnnotation.class));
+                    }
                     sentences.add(currentSentence);
-                currentSentence = new ArrayList<WordToken>();
+                }
+
+
+                currentSentence = new ArrayList<>();
+                coreLabelSentence = new ArrayList<>();
                 quoteCount = 0;
             }
 
             currentSentence.add(token);
+            coreLabelSentence.add(coreLabelList.get(i));
+
             if (tokenText.equals("\""))
                 quoteCount++;
 
@@ -264,31 +339,128 @@ public class AceTokenizerSentSplitter {
             if (sentenceFinalPuncSet.contains(tokenText)) {
                 // include quotes after EOS
                 if (i < tokenList.size() - 1 && quoteCount % 2 == 1 && tokenList.get(i + 1).getWord().equals("\"")) {
-                    WordToken quoteToken = tokenList.get(i + 1);
+                    WordTokenPOSDep quoteToken = tokenList.get(i + 1);
                     currentSentence.add(quoteToken);
                     quoteCount++;
                     i++;
                 }
-                if (currentSentence.size() > 0)
+                if (currentSentence.size() > 0) {
+                    /**
+                     *
+                     * @author Meryem M'hamdi (meryem@isi.edu)
+                     *
+                     * Parsing using default dependency parsing model for English in CoreNLP
+                     * and disabling punctuation filter
+                     *
+                     */
+                    Tree tree = lp.apply(coreLabelSentence);
+                    TreebankLanguagePack tlp = new PennTreebankLanguagePack();
+                    GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory(Filters.<String>acceptFilter());
+                    GrammaticalStructure gs = gsf.newGrammaticalStructure(tree);
+                    List<SentDep> deps = new ArrayList<SentDep>();
+                    Collection<TypedDependency> tdl = gs.typedDependenciesCCprocessed(true);
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        for (TypedDependency td : tdl) {
+                            // TypedDependency td = tdl.(i);
+                            String name = td.reln().getShortName();
+                            if (td.reln().getSpecific() != null)
+                                name += "-" + td.reln().getSpecific();
+
+                            int gov = td.gov().index();
+                            int dep = td.dep().index();
+                            if (gov == dep) {
+                                // System.err.println("same???");
+                            }
+                            SentDep sd = new SentDep(gov - 1, dep - 1, name);
+                            deps.add(sd);
+                        }
+                    }
+                    for (int l=0; l<currentSentence.size();l++){
+                        currentSentence.get(l).setGov(deps.get(l).getGov());
+                        currentSentence.get(l).setType(deps.get(l).getType());
+                        currentSentence.get(l).setPOS(coreLabelSentence.get(l).get(CoreAnnotations.PartOfSpeechAnnotation.class));
+                    }
                     sentences.add(currentSentence);
-                currentSentence = new ArrayList<WordToken>();
+                }
+                currentSentence = new ArrayList<WordTokenPOSDep>();
+                coreLabelSentence = new ArrayList<>();
                 quoteCount = 0;
             }
 
             // start a new sentence when we hit an SGML tag
             else if (AceToken.isSgml(tokenText)) {
-                if (currentSentence.size() > 0)
+                if (currentSentence.size() > 0) {
+                    Tree tree = lp.apply(coreLabelSentence);
+                    TreebankLanguagePack tlp = new PennTreebankLanguagePack();
+                    GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory(Filters.<String>acceptFilter());
+                    GrammaticalStructure gs = gsf.newGrammaticalStructure(tree);
+                    List<SentDep> deps = new ArrayList<SentDep>();
+                    Collection<TypedDependency> tdl = gs.typedDependenciesCCprocessed(true);
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        for (TypedDependency td : tdl) {
+                            // TypedDependency td = tdl.(i);
+                            String name = td.reln().getShortName();
+                            if (td.reln().getSpecific() != null)
+                                name += "-" + td.reln().getSpecific();
+
+                            int gov = td.gov().index();
+                            int dep = td.dep().index();
+                            if (gov == dep) {
+                                // System.err.println("same???");
+                            }
+                            SentDep sd = new SentDep(gov - 1, dep - 1, name);
+                            deps.add(sd);
+                        }
+                    }
+                    for (int l=0; l<currentSentence.size();l++){
+                        currentSentence.get(l).setGov(deps.get(l).getGov());
+                        currentSentence.get(l).setType(deps.get(l).getType());
+                        currentSentence.get(l).setPOS(coreLabelSentence.get(l).get(CoreAnnotations.PartOfSpeechAnnotation.class));
+                    }
                     sentences.add(currentSentence);
-                currentSentence = new ArrayList<WordToken>();
+                }
+                currentSentence = new ArrayList<WordTokenPOSDep>();
+                coreLabelSentence = new ArrayList<>();
                 quoteCount = 0;
             }
         }
-        if (currentSentence.size() > 0)
+        if (currentSentence.size() > 0) {
+            Tree tree = lp.apply(coreLabelSentence);
+            TreebankLanguagePack tlp = new PennTreebankLanguagePack();
+            GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory(Filters.<String>acceptFilter());
+            GrammaticalStructure gs = gsf.newGrammaticalStructure(tree);
+            List<SentDep> deps = new ArrayList<SentDep>();
+            Collection<TypedDependency> tdl = gs.typedDependenciesCCprocessed(true);
+            {
+                StringBuilder sb = new StringBuilder();
+                for (TypedDependency td : tdl) {
+                    // TypedDependency td = tdl.(i);
+                    String name = td.reln().getShortName();
+                    if (td.reln().getSpecific() != null)
+                        name += "-" + td.reln().getSpecific();
+
+                    int gov = td.gov().index();
+                    int dep = td.dep().index();
+                    if (gov == dep) {
+                        // System.err.println("same???");
+                    }
+                    SentDep sd = new SentDep(gov - 1, dep - 1, name);
+                    deps.add(sd);
+                }
+            }
+            for (int l=0; l<currentSentence.size();l++){
+                currentSentence.get(l).setGov(deps.get(l).getGov());
+                currentSentence.get(l).setType(deps.get(l).getType());
+                currentSentence.get(l).setPOS(coreLabelSentence.get(l).get(CoreAnnotations.PartOfSpeechAnnotation.class));
+            }
             sentences.add(currentSentence);
+        }
 
         outSents.addAll(sentences);
         int numSentToks = 0;
-        for (List<WordToken> sent : sentences) {
+        for (List<WordTokenPOSDep> sent : sentences) {
             numSentToks += sent.size();
         }
         log.trace(String.format("# orig tokens=%d # sent tokens=%d", tokenList.size(), numSentToks));

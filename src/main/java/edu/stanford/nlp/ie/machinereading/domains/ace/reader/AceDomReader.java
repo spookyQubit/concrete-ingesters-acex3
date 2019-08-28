@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * DOM reader for an ACE specification.
@@ -336,6 +337,8 @@ public class AceDomReader extends DomReader {
     }
 
     public static void main(String[] argv) throws Exception {
+        argv = new String[1];
+        argv[0] = "/Users/d22admin/USCGDrive/ISI/EventExtraction/5Algorithms/DataPreparation/concrete-ingesters-acex3/src/main/java/edu/bit/nlp/concrete/ingesters/acex3/CNN_LE_20030504.1200.01.apf.xml";
         if (argv.length != 1) {
             System.err.println("Usage: java AceDomReader <APF file>");
             System.exit(1);
@@ -343,8 +346,25 @@ public class AceDomReader extends DomReader {
 
         File f = new File(argv[0]);
         AceDocument doc = parseDocument(f);
+        System.out.println(doc.getSentences());
+        System.out.println(doc.getSentenceCount());
+
+
         System.out.println("Processed ACE document:\n" + doc);
         ArrayList<ArrayList<AceRelationMention>> r = doc.getAllRelationMentions();
+        System.out.println(r);
+        System.out.println("****************************************************************\n");
+        Map<String, AceEntityMention> entities = doc.getEntityMentions();
+
+        //System.out.println(entities);
+
+        Map<String, AceEventMention> events = doc.getEventMentions();
+
+        for (Map.Entry<String, AceEventMention> entry : events.entrySet()) {
+            System.out.println(entry.getKey() + " anchor:" +entry.getValue().getAnchor()+
+                    " type:" +entry.getValue().getParent().getType()+ "\n");
+        }
+        //System.out.println(events);
         System.out.println("size: " + r.size());
     }
 }

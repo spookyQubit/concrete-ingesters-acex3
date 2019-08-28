@@ -156,6 +156,9 @@ public class Sgml2Concrete {
      * list of sections.
      */
     public Communication getComm(String rawText, List<Integer> sectionMarkers, String id, String type) {
+        //System.out.println("##########################################################");
+        //System.out.println("rawtext:"+ rawText);
+        //System.out.println("##########################################################");
         AnalyticUUIDGeneratorFactory f = new AnalyticUUIDGeneratorFactory();
         AnalyticUUIDGenerator g = f.create();
         Communication comm = new Communication();
