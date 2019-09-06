@@ -106,12 +106,15 @@ public class AceApf2Concrete {
             JSONArray entityListJSON = new JSONArray();
             if (goldenEntities.containsKey(uuid)) {
                 for (String entityUUiD : goldenEntities.get(uuid).keySet()) {
-                    JSONObject entityJSON = new JSONObject();
-                    entityJSON.put("start", goldenEntities.get(uuid).get(entityUUiD).getStartIndex());
-                    entityJSON.put("end", goldenEntities.get(uuid).get(entityUUiD).getEndIndex());
-                    entityJSON.put("entity-type", goldenEntities.get(uuid).get(entityUUiD).getEntityType());
-                    entityJSON.put("text", goldenEntities.get(uuid).get(entityUUiD).getEntityText());
-                    entityListJSON.add(entityJSON);
+                    String entity_type = goldenEntities.get(uuid).get(entityUUiD).getEntityType();
+                    if (!entity_type.equals("TRIGGER:TRIGGER")) {
+                        JSONObject entityJSON = new JSONObject();
+                        entityJSON.put("start", goldenEntities.get(uuid).get(entityUUiD).getStartIndex());
+                        entityJSON.put("end", goldenEntities.get(uuid).get(entityUUiD).getEndIndex());
+                        entityJSON.put("entity-type", entity_type);
+                        entityJSON.put("text", goldenEntities.get(uuid).get(entityUUiD).getEntityText());
+                        entityListJSON.add(entityJSON);
+                    }
                 }
             }
 
@@ -260,7 +263,8 @@ public class AceApf2Concrete {
      * Adds the entity, entity mention, event, and event mention annotations
      * from the {@link AceDocument} to a Concrete {@link Communication}.
      */
-    private void addApfAnnotations(AceDocument apfDoc, Communication comm, AnalyticUUIDGeneratorFactory.AnalyticUUIDGenerator g) throws Exception {
+    private void addApfAnnotations(AceDocument apfDoc, Communication comm,
+                                   AnalyticUUIDGeneratorFactory.AnalyticUUIDGenerator g) throws Exception {
         Map<AceEntityMention, EntityMention> a2cEntityMentions = new HashMap<>();
 
         // Add the Entity annotations.
@@ -547,14 +551,13 @@ public class AceApf2Concrete {
 
     public static void main(String[] args) throws Exception {
         String rootDir = args[0]; //"/Users/d22admin/USCGDrive/ISI/EventExtraction/"
-        String outfile = rootDir+ args[1]; // "3Datasets/EventsExtraction/ACE/Preprocessed/JMEE_Dataset/English_new/" "3Datasets/EventsExtraction/ACE/LDC2006T06/data/English/" "5Algorithms/EventDetection/JMEE/qi_filelist/new_filelist_ACE_"
         String rootDataDir = rootDir + args[2]; // "3Datasets/EventsExtraction/ACE/LDC2006T06/data/English/";
         String splitPath = rootDir + args[3]; // "5Algorithms/EventDetection/JMEE/qi_filelist/new_filelist_ACE_";
 
-        String[] filesplits = new String[]{"training", "dev", "test"};
+        String[] filesplits = new String[]{"dev", "test", "training"};
 
         for (int j=0; j<filesplits.length; j++){
-            outfile += filesplits[j] +".json";
+            String outfile = rootDir+ args[1]+ filesplits[j] +".json";
             List<String> files = new ArrayList<>();
             File file = new File(splitPath+filesplits[j]);
             BufferedReader br = new BufferedReader(new FileReader(file));
@@ -652,7 +655,7 @@ public class AceApf2Concrete {
                             for (int o=0; o<entityMention.getTokens().getTokenIndexListSize(); o++){
                                 tokensText += wordsList.get(uuid).get(tokensList.get(o)) + " ";
                             }
-                            EntityJson entityJson = new EntityJson(tokensList.get(0),tokensList.get(tokensList.size()-1),
+                            EntityJson entityJson = new EntityJson(tokensList.get(0),tokensList.get(tokensList.size()-1)+1,
                                     entityMention.getEntityType(), tokensText);
 
                             if (!entityMap.containsKey(uuid)){
@@ -672,37 +675,48 @@ public class AceApf2Concrete {
                      */
                     for (int k=0;k<comm.getSituationMentionSetListSize(); k++){
                         SituationMentionSet situationSet = comm.getSituationMentionSetList().get(k);
+                        System.out.println("situationSet:"+ situationSet);
                         num_events += situationSet.getMentionListSize();
                         for (int m=0; m<situationSet.getMentionListSize();m++) {
                             SituationMention situation = situationSet.getMentionList().get(m);
                             String eventType = situation.getSituationKind();
                             List<ArgumentJson> arguments = new ArrayList<>();
-                            TriggerJson trigger = new TriggerJson(0, 1 , "N/A");
+                            TriggerJson trigger = new TriggerJson(0, 0, "N/A");
+                            System.out.println("situation:" +situation);
+                            String uuid = "";
                             for (int o=0;o<situation.getArgumentListSize(); o++){
                                 MentionArgument argument = situation.getArgumentList().get(o);
                                 String argumentUUid = argument.getEntityMentionId().getUuidString();
-                                String uuid = entityIdMap.get(argumentUUid);
-                                for (int p=0;p<entityMap.get(uuid).size();p++){
-                                    EntityJson entityJson = entityMap.get(uuid).get(argumentUUid);
+                                uuid = entityIdMap.get(argumentUUid);
+                                EntityJson entityJson = entityMap.get(uuid).get(argumentUUid);
+                                if (argument.getRole().equals("TRIGGER")){
+                                    System.out.println("TRIGGER FOUND >>> start:"+entityJson.getStartIndex()+
+                                            " end:" + entityJson.getEndIndex() + " text:" + entityJson.getEntityText());
+                                    trigger = new TriggerJson(entityJson.getStartIndex(), entityJson.getEndIndex(),
+                                            entityJson.getEntityText());
 
-                                    if (argument.getRole().equals("TRIGGER")){
-                                        trigger = new TriggerJson(entityJson.getStartIndex(),
-                                                entityJson.getEndIndex(), entityJson.getEntityText());
-                                    } else{
-                                        arguments.add(new ArgumentJson(entityJson.getStartIndex(), entityJson.
-                                                getEndIndex(), argument.getRole(), entityJson.getEntityText()));
+                                } else{
+                                    arguments.add(new ArgumentJson(entityJson.getStartIndex(), entityJson.
+                                            getEndIndex(), argument.getRole(), entityJson.getEntityText()));
 
-                                    }
-
-                                    EventJson eventJson = new EventJson(trigger, arguments, eventType);
-                                    if (!eventMap.containsKey(uuid)){
-                                        eventMap.put(uuid, new ArrayList<EventJson>());
-                                    }
-                                    if (!eventMap.get(uuid).contains(eventJson)) {
-                                        eventMap.get(uuid).add(eventJson);
-                                    }
+                                    System.out.println("start: "+entityJson.getStartIndex() + " end: "+
+                                            entityJson.getEndIndex() + " role: "+ argument.getRole() +
+                                            " text: "+entityJson.getEntityText());
                                 }
+                            }
+                            System.out.println("*********************************************");
+                            System.out.println("uuid:" + uuid);
+                            System.out.println("arguments.size()>>>>"+arguments.size());
+                            System.out.println("*********************************************");
 
+                            EventJson eventJson = new EventJson(trigger, arguments, eventType);
+                            if (uuid.length() > 0) {
+                                if (!eventMap.containsKey(uuid)) {
+                                    eventMap.put(uuid, new ArrayList<EventJson>());
+                                }
+                                if (!eventMap.get(uuid).contains(eventJson)) {
+                                    eventMap.get(uuid).add(eventJson);
+                                }
                             }
                         }
                     }
@@ -715,6 +729,7 @@ public class AceApf2Concrete {
             }
             System.out.println(" Number of sentences in = "+ sentencesList.size());
             System.out.println(" Number of events in split: "+ filesplits[j]+ " is = "+ num_events);
+
             a2c.writeToJSON(sentencesList, wordsList, posList, depList, entityMap, eventMap, outfile);
         }
 
