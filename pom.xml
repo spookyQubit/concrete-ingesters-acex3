@@ -9,7 +9,7 @@
     <version>2.3.0</version>
     <build>
         <plugins>
-            <plugin>
+           <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.7.0</version>
@@ -18,7 +18,20 @@
                     <target>1.8</target>
                 </configuration>
             </plugin>
-        </plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>1.6</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+       </plugins>
     </build>
 
     <parent>
@@ -84,6 +97,11 @@
             <groupId>edu.jhu.prim</groupId>
             <artifactId>prim</artifactId>
             <version>3.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1</version>
         </dependency>
     </dependencies>
 

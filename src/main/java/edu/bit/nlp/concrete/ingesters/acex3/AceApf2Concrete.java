@@ -156,9 +156,19 @@ public class AceApf2Concrete {
             sentencesListJSON.add(sentenceJSON);
 
         }
+      
+        // Create file if it does not exist 
+        try {
+            File out_file = new File(outfile);
+            if(!out_file.createNewFile()) {
+                System.out.println("File already exists");
+            } 
+        } catch (IOException ex) {
+            System.out.println(ex);
+        }
+
         //Write JSON file
         try (FileWriter file = new FileWriter(outfile)) {
-
             file.write(sentencesListJSON.toJSONString());
             file.flush();
 
@@ -550,21 +560,31 @@ public class AceApf2Concrete {
      */
 
     public static void main(String[] args) throws Exception {
-        String rootDir = args[0]; //"/Users/d22admin/USCGDrive/ISI/EventExtraction/"
-        String rootDataDir = rootDir + args[2]; // "3Datasets/EventsExtraction/ACE/LDC2006T06/data/English/";
-        String splitPath = rootDir + args[3]; // "5Algorithms/EventDetection/JMEE/qi_filelist/new_filelist_ACE_";
+        
+        String inputFile   = args[0];  // "ace/English/bn/adj/NTV20001027.1530.1287"
+        String outFile     = args[1];  // "output/English/bn/adj/NTV20001027.1530.1287.json"
+        String lang        = args[2];  // "en/ar"    
+        
+        //String rootDir     = args[0]; //"/Users/d22admin/USCGDrive/ISI/EventExtraction/"
+        //String rootDataDir = rootDir + args[2]; // "3Datasets/EventsExtraction/ACE/LDC2006T06/data/English/";
+        //String splitPath   = rootDir + args[3]; // "5Algorithms/EventDetection/JMEE/qi_filelist/new_filelist_ACE_";
+        
+        
 
-        String[] filesplits = new String[]{"dev", "test", "training"};
+        System.out.println("lang = " + lang);
+        //String[] filesplits = new String[]{"dev", "test", "training"};
 
-        for (int j=0; j<filesplits.length; j++){
-            String outfile = rootDir+ args[1]+ filesplits[j] +".json";
+        //for (int j=0; j<filesplits.length; j++){
+            //String outfile = rootDir+ args[1]+ filesplits[j] +".json";
+            String outfile = outFile;
             List<String> files = new ArrayList<>();
-            File file = new File(splitPath+filesplits[j]);
-            BufferedReader br = new BufferedReader(new FileReader(file));
-            String st;
-            while((st = br.readLine()) != null){
-                files.add(st);
-            }
+            //File file = new File(splitPath+filesplits[j]);
+            //BufferedReader br = new BufferedReader(new FileReader(file));
+            //String st;
+            //while((st = br.readLine()) != null){
+            //    files.add(st);
+            //}
+            files.add(inputFile);
             Map<String, String> sentencesList = new HashMap<>();
             Map<String, String> entityIdMap = new HashMap<>();
             Map<String, ArrayList<String>> wordsList = new HashMap<String, ArrayList<String>>();
@@ -575,11 +595,18 @@ public class AceApf2Concrete {
 
             AceApf2Concrete a2c = new AceApf2Concrete();
             int num_events = 0;
-            LexicalizedParser lp = LexicalizedParser.loadModel();
+            System.out.println("Loading model first");
+            LexicalizedParser lp = LexicalizedParser.loadModel("/Users/shantanu/Downloads/arabicFactored.ser.gz");
+            if(lang == "ar"){
+                System.out.println("Using arabic model");
+                lp = LexicalizedParser.loadModel("~/Downloads/arabicFactored.ser.gz");
+            } 
             for (int i=0; i<files.size(); i++) {
                 log.info(String.format("Processing file=%s", files.get(i)));
-                String apfFilePath = rootDataDir + files.get(i) + ".apf.xml";
-                String commFilePath = rootDataDir + files.get(i) + ".comm";
+                //String apfFilePath = rootDataDir + files.get(i) + ".apf.xml";
+                //String commFilePath = rootDataDir + files.get(i) + ".comm";
+                String apfFilePath = files.get(i) + ".apf.xml";
+                String commFilePath = files.get(i) + ".comm";
                 Path outDir = Paths.get(commFilePath);
                 List<Path> apfXmlFilesList = new ArrayList<Path>();
                 if (!Files.isDirectory(Paths.get(apfFilePath))) {
@@ -728,10 +755,11 @@ public class AceApf2Concrete {
 
             }
             System.out.println(" Number of sentences in = "+ sentencesList.size());
-            System.out.println(" Number of events in split: "+ filesplits[j]+ " is = "+ num_events);
+            //System.out.println(" Number of events in split: "+ filesplits[j]+ " is = "+ num_events);
+            System.out.println(" Number of events in file: "+ inputFile + " is = "+ num_events);
 
             a2c.writeToJSON(sentencesList, wordsList, posList, depList, entityMap, eventMap, outfile);
-        }
+        //}  
 
 
     }
