@@ -1,4 +1,11 @@
 # Concrete Ingesters ACE Event Extraction
+
+```
+git clone 
+mvn package
+If using language = ar, make sure to download the ar model from "" and update the main function.
+```
+
 A more complete version of Xiao Liu's concrete-ingesters-acex3 java toolkit, which was originally modified from jhu's [concrete-ingesters-acere](https://www.mvnrepository.com/artifact/edu.jhu.hlt/concrete-ingesters-acere).
 
 Maven:
